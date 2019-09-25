@@ -1,0 +1,5 @@
+spring:
+  application:
+    name: mx-message-rocket
+server:
+  port: 8888
