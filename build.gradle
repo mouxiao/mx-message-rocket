@@ -1,27 +1,178 @@
-plugins {
-    id 'org.springframework.boot' version '2.1.8.RELEASE'
-    id 'io.spring.dependency-management' version '1.0.8.RELEASE'
-    id 'java'
+buildscript {
+    ext {
+        springBootVersion = '2.1.8.RELEASE'
+    }
+    repositories {
+        maven { url 'http://maven.aliyun.com/nexus/content/groups/public/' }
+        maven { url 'https://repo.spring.io/libs-snapshot' }
+        maven { url 'https://repo.spring.io/libs-milestone' }
+        maven { url "https://plugins.gradle.org/m2/" }
+        mavenCentral()
+    }
+    dependencies {
+        classpath("org.springframework.boot:spring-boot-gradle-plugin:${springBootVersion}")
+    }
 }
+plugins {
+    id 'java'
+    id 'checkstyle'
+    id 'findbugs'
+    id "net.ltgt.apt-idea" version "0.18"
+}
+
+apply plugin: 'idea'
+apply plugin: 'org.springframework.boot'
+apply plugin: 'io.spring.dependency-management'
+
+apply plugin: 'findbugs'
+apply plugin: 'checkstyle'
+apply plugin: 'jacoco'
 
 group = 'com.m.x.picture'
 version = '0.0.1-SNAPSHOT'
-sourceCompatibility = '1.8'
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
 
 repositories {
     mavenCentral()
 }
 
 ext {
+    coverageExclusions = []
+    minimumCoverageRatio = 0.3
 }
+
+tasks.withType(JavaCompile) {
+    options.encoding = "UTF-8"
+}
+
 
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-webflux'
+    compile 'org.apache.rocketmq:rocketmq-client:4.3.0'
+    compile 'org.projectlombok:lombok'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'io.projectreactor:reactor-test'
 }
 
+
 dependencyManagement {
     imports {
+
     }
+}
+
+checkstyle {
+    toolVersion '8.1'
+    ignoreFailures = false
+    configFile file("$project.rootDir/config/checkstyle/google_checks.xml")
+
+    sourceSets = [sourceSets.main]
+}
+
+checkstyleMain {
+    source = 'src/main/java'
+}
+
+jacoco {
+    toolVersion = "0.8.1"
+
+    jacocoTestCoverageVerification {
+        afterEvaluate {
+            classDirectories = files(classDirectories.files.collect {
+                fileTree(dir: it, exclude: coverageExclusions)
+            })
+        }
+        violationRules {
+            rule {
+                limit {
+                    minimum = minimumCoverageRatio
+                }
+
+                limit {
+                    counter = 'LINE'
+                    value = 'COVEREDRATIO'
+                    minimum = minimumCoverageRatio
+                }
+
+                limit {
+                    counter = 'METHOD'
+                    value = 'COVEREDRATIO'
+                    minimum = minimumCoverageRatio
+                }
+            }
+        }
+    }
+
+    jacocoTestReport {
+        afterEvaluate {
+            classDirectories = files(classDirectories.files.collect {
+                fileTree(dir: it, exclude: coverageExclusions)
+            })
+        }
+        reports {
+            xml.enabled false
+            csv.enabled false
+            html.destination file("${buildDir}/reports/jacocoHtml")
+        }
+    }
+}
+
+
+findbugs {
+    ignoreFailures = false
+    toolVersion = "3.0.1"
+    sourceSets = [sourceSets.main]
+    excludeFilter = file("$project.rootDir/config/findbugs/excludeFilter.xml")
+    reportsDir = file("$project.buildDir/reports/findbugs")
+    effort = "max"
+}
+
+tasks.withType(FindBugs) {
+    reports {
+        xml.enabled false
+        html.enabled true
+    }
+}
+
+
+idea {
+    project {
+        languageLevel = '1.8'
+        jdkName = '1.8'
+
+        ipr {
+            withXml { provider ->
+                // 1. enable annotation processing
+                // Get XML as groovy.util.Node to work with.
+                def projectXml = provider.asNode()
+
+                // Find compiler configuration component.
+                def compilerConfiguration = projectXml.component.find { component ->
+                    component.'@name' == 'CompilerConfiguration'
+                }
+
+                // Replace current annotationProcessing
+                // that is part of the compiler configuration.
+                def currentAnnotationProcessing = compilerConfiguration.annotationProcessing
+                currentAnnotationProcessing.replaceNode {
+                    annotationProcessing {
+                        profile(name: 'Default', default: true, enabled: true) {
+                            processorPath(useClasspath: true)
+                        }
+                    }
+                }
+
+                // 2. default to git
+                projectXml.component.find { it.@name == 'VcsDirectoryMappings' }
+                        .mapping.@vcs = 'Git'
+            }
+        }
+    }
+}
+
+copy {
+    from "./config/githooks/"
+    into "./.git/hooks/"
+    fileMode 0755
 }
